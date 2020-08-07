@@ -1,5 +1,6 @@
 ### Shiny Webapps for Data Visualization
 ### Created by Kevin Tongam Anggatama
+## 7 August 2020
 
 library(shiny)
 library(ggplot2)
@@ -23,7 +24,7 @@ ui_code <- fluidPage(
       selectInput("continent", "Select Continent", #adding input bar for choosing continent
                   choices = levels(gapminder$continent), 
                   multiple = TRUE, 
-                  selected = "Europe"),
+                  selected = c("Europe", "Asia", "Americas")),
       pickerInput("var_y", "Select Y Axis", #adding input bar for choosing Y axis variable
                   choices = names(gapminder[4:6]), 
                   selected = names(gapminder)[[6]], 
@@ -59,7 +60,7 @@ ui_code <- fluidPage(
                  downloadButton("download_data", label = "download data")),
         tabPanel("Dynamic Table",DT::DTOutput("table")),
         tabPanel("About", h4("This data viz web apps is created by Kevin Tongam Anggatama",
-                             br("Code is provided in my Github: https://github.com/kevin-ngamy/R-Portfolio")))
+                             br("Code is provided in my Github: https://github.com/kevin-ngamy/R-Portfolio/blob/kevin-ngamy-patch-1/gapminder_code")))
         
         
       )
