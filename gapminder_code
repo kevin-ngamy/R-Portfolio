@@ -1,0 +1,169 @@
+### Shiny Webapps for Data Visualization
+### Created by Kevin Tongam Anggatama
+
+library(shiny)
+library(ggplot2)
+library(tidyverse)
+library(colourpicker)
+library(leaflet)
+library(gapminder)
+library(plotly)
+library(dplyr)
+library(DT)
+library(shinythemes)
+library(shinyWidgets)
+
+### User Interface Code
+ui_code <- fluidPage(
+  
+  sidebarLayout(
+    sidebarPanel(
+      titlePanel("Data Visualization"),
+      theme = shinythemes::shinytheme("cyborg"),
+      selectInput("continent", "Select Continent", #adding input bar for choosing continent
+                  choices = levels(gapminder$continent), 
+                  multiple = TRUE, 
+                  selected = "Europe"),
+      pickerInput("var_y", "Select Y Axis", #adding input bar for choosing Y axis variable
+                  choices = names(gapminder[4:6]), 
+                  selected = names(gapminder)[[6]], 
+                  multiple = FALSE,
+                  options = list(`style` = "btn-info")),
+      pickerInput("var_x", "Select X Axis", #adding input bar for choosing X axis variable
+                  choices = names(gapminder[4:6]), 
+                  selected = names(gapminder)[[4]], 
+                  multiple = FALSE,
+                  options = list(`style` = "btn-warning")),
+      sliderInput("year", "Select Period", # Selecting period (time interval)
+                  min(gapminder$year), 
+                  max(gapminder$year), 
+                  value = c(1977, 2002), 1),
+      colourInput("color", "Plot Color", value = "blue"),
+      numericInput("size", "Plot Size", 0.5, 1),
+      checkboxInput("fit", "Add linear fit line", FALSE),
+      actionButton("show_stats", "Statistics"), # button to show statistics summary
+      DT::dataTableOutput("stats"),
+      actionBttn(
+        inputId = "ab_data",
+        label = "About data",
+        style = "float", 
+        color = "danger"
+      ),
+      textOutput("ab")
+      
+    ),
+    mainPanel( #code for each tab panel
+      tabsetPanel(
+        tabPanel("Visualization",shinycssloaders::withSpinner(plotly::plotlyOutput("plot", height = "100%")),
+                 tabPanel("animation", shinycssloaders::withSpinner(plotly::plotlyOutput("anim"))),
+                 downloadButton("download_data", label = "download data")),
+        tabPanel("Dynamic Table",DT::DTOutput("table")),
+        tabPanel("About", h4("This data viz web apps is created by Kevin Tongam Anggatama",
+                             br("Code is provided in my Github: https://github.com/kevin-ngamy/R-Portfolio")))
+        
+        
+      )
+    )
+  )
+)
+
+### Server code
+server_code <- function(input, output){
+  ## Data pre-processing and filtering, binding inputted variable to gapminder dataset
+  data_source <- reactive({
+    data <- gapminder[, c("country", "continent", "year", "lifeExp", "pop", "gdpPercap", input$var_y, input$var_x)]
+    
+    names(data)[7] <- "y_input"
+    names(data)[8] <- "x_input"
+    data <- subset(data, continent %in% input$continent &
+                     year >= input$year[1] & 
+                     year <= input$year[2])
+    
+  }) 
+  ## Plot output in main panel using pre-processed and filtered data
+  output$plot <- renderPlotly({
+    ggplotly({
+      
+      pl <- ggplot(data_source(), aes(y = log(y_input), x = log(x_input))) +
+        geom_point(size = input$size, col = input$color) +
+        xlab(input$var_x) + ylab(input$var_y)
+      
+      if (input$fit){
+        pl <- pl + geom_smooth(method = "lm", size = 0.4, alpha = 0.4)
+      }
+      pl
+      
+      
+    })
+    
+  })
+  
+  output$table <- DT::renderDT({
+    gapminder <- subset(
+      gapminder, continent %in% 
+        input$continent &
+        year >= input$year[1] &
+        year <= input$year[2]
+    )
+  })
+  
+  output$download_data <- downloadHandler(
+    filename = "gapminder_data.csv",
+    content = function(file) {
+      data <- gapminder
+      write.csv(data, file, row.names = FALSE)
+    }
+  )
+
+  output$anim <- renderPlotly({
+    ggplotly({
+      p <- ggplot(data_source(), aes(y = y_input, x = x_input, color = continent)) +
+        geom_point(aes(size = pop, frame = year, ids = country)) +
+        scale_x_log10() + xlab(input$var_x) + ylab(input$var_y)
+      p
+    })
+  })
+  
+  sum_stats <- eventReactive(input$show_stats, {
+    data_source() %>%
+      summarise(mean_lifeExp = mean(gapminder$lifeExp), 
+                mean_pop = mean(gapminder$pop),
+                mean_gdp = mean(gapminder$gdpPercap),
+                sd = sd(gapminder$lifeExp)
+                )
+  })
+  output$stats <- DT::renderDataTable(sum_stats())
+  
+  observeEvent(input$ab_data, {
+    showModal(modalDialog(print(h1("This web apps visualizes Gapminder dataset.",
+                                   br(h3("This dataset is collected by", strong("gapminder.org"), "consists of three vital economic variables, GDP per Capita,
+                                         Life Expectancy, and Population among 142 countries grouped by 5 continent in 
+                                         time interval from 1952 to 2007 (panel data). This dataset is available for download.",
+                                         br(h4("This web apps is created for you to visualize the relation of each economic variables
+                                               and use animated visualization to see the dynamics of GDP per Capita, Life Expectancy, and Population of countries each year.")),
+                                         br(h5(em("This Web apps is created by Kevin Tongam Anggatama."))))))), title = "About Dataset"))
+    
+  })
+  
+}
+
+
+shinyApp(ui = ui_code, server = server_code, options = list(height = 1080))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
