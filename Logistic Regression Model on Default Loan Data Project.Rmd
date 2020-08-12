@@ -1,0 +1,214 @@
+---
+title: "Implementation of Logistic Regression to Predict Default Loan by Kevin Tongam A."
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Predictive Modeling On Credit Default Using **GLM** Model in R
+
+I am going to demonstrate the practical application of logistic regression model to predict if an individual would default their loan or paid the loan.
+We will use real data from [Lending Club](https://www.lendingclub.com/) and import it to my R studio. The data consists of 9,578 obersevations and total 14 variables
+```{r, echo=FALSE, include=FALSE, message=FALSE}
+set.seed(123456)
+library(ggplot2)
+library(caret)
+library(tidyverse)
+```
+```{r}
+loan <- read.csv("loan_data.csv")
+str(loan)
+```
+Here are the variables definitions:
+**credit.policy: 1 if the customer meets the credit underwriting criteria of LendingClub.com, and 0 otherwise.**
+
+**purpose: The purpose of the loan (takes values “credit_card”, “debt_consolidation”, “educational”, “major_purchase”, “small_business”, and “all_other”).**
+
+**int.rate: The interest rate of the loan, as a proportion (a rate of 11% would be stored as 0.11). Borrowers judged by LendingClub.com to be more risky are assigned higher interest rates.**
+
+**installment: The monthly installments ($) owed by the borrower if the loan is funded.**
+
+**log.annual.inc: The natural log of the self-reported annual income of the borrower.**
+
+**dti: The debt-to-income ratio of the borrower (amount of debt divided by annual income).**
+
+**fico: The FICO credit score of the borrower. days.with.cr.line: The number of days the borrower has had a credit line.**
+
+**revol.bal: The borrower’s revolving balance (amount unpaid at the end of the credit card billing cycle).**
+
+**revol.util: The borrower’s revolving line utilization rate (the amount of the credit line used relative to total credit available).**
+
+**inq.last.6mths: The borrower’s number of inquiries by creditors in the last 6 months.**
+
+**delinq.2yrs: The number of times the borrower had been 30+ days past due on a payment in the past 2 years.**
+
+**pub.rec: The borrower’s number of derogatory public records (bankruptcy filings, tax liens, or judgments).**
+
+## Some Theoretical Framework of Logistic Regression
+The dependent variables we use from the data is variabel "not.fully.paid", expressed as 1 if the corresponding individual default their loan and 0 if they paid the loan.
+We call this binary classification where the regressand value is either 0 or 1. Here we can predict, given any regressors Xi,...,Xn, the probability of a person will default as $P(Y=1 | Xi)$ or paid as $P(Y=0 | Xi)$ Thus we can write this as if the probability of a person default is given by $$ P(Y = 1| Xi) =  Pi $$ then the probability of them paid is $$P(Y = 0 | Xi) = 1 - Pi $$ and Y follows the [Bernoulli Distribution](https://en.wikipedia.org/wiki/Bernoulli_distribution).
+
+
+The logistic regression is based off of logistic distribution function. Suppose a model of $Pi = β1 + β2Xi$, thus the logistic function is expresses by $$ Pi = \frac{1}{1 + e^-({β_1 + β_2Xi})} $$ or we can simply write it $$ Pi = \frac{exp(β_1 + β_2Xi)}{1 + exp(β_1 + β_2Xi)} $$ This represents the probability of a person default.
+Otherwise, we can write the probability of loan being paid (Y = 0) as : $$ 1 - Pi = \frac{1}{1 + exp(β_1 + β_2Xi)} $$
+Therefore, we can write $$ \frac{Pi}{1 - Pi} = \frac{exp(β_1 + β_2Xi)(exp(β_1 + β_2Xi) + 1)}{exp(β_1 + β_2Xi) + 1} = exp(β_1 + β_2Xi) $$ This is exactly the **odds ratio** in favor of a person default their loan, i.e if Pi = 0.8 means that the odds are 4 to 1 in favor a person will default the loan.
+Taking the natural log of the equation above, we have
+$$ Ln(\frac{Pi}{1 - Pi}) = β_1 + β_2Xi $$ This is the framework of logistic regression model. The method to estimate the coefficient paramater in logistic regression is using **[Maximum Likelihood](https://mathworld.wolfram.com/MaximumLikelihood.html)**.
+
+Here is the visual representation of default and paid in loan as shown in the graph below. The default rate with respect to paid is approximately 22.5%.
+
+```{r}
+ggplot(loan, aes(x = not.fully.paid)) + geom_histogram(stat = "count", aes(fill = factor(loan$not.fully.paid)))
+```
+
+### data pre-processing
+First, we should prepare the data so the class of the data fits the type of the data values. This can be done by factorizing the variable which values are qualitative, could be binary or a discrete factor like 0, 1, 2, 3, etc, this is commonly referred as dummy variable. For the variable log.annual.income has been initially log-transformed, we should bring it back to its actual values by doing the antilog of log.annual.inc to keep it easy for the coefficient interpration later. Fortunately we don't have any missing values in our data so we do not have to manipulate the data to fit into the model.
+```{r}
+# Convert factorable variable to factors #
+loan$credit.policy <- as.factor(loan$credit.policy)
+loan$purpose <- as.factor(loan$purpose)
+loan$inq.last.6mths <- as.integer(loan$inq.last.6mths)
+loan$delinq.2yrs <- as.integer(loan$delinq.2yrs)
+loan$pub.rec <- as.integer(loan$pub.rec)
+loan$not.fully.paid <- as.factor(loan$not.fully.paid)
+loan$log.annual.inc <- exp(loan$log.annual.inc)
+
+# checking if there's any missing values
+any(is.na(loan))
+```
+
+### Exploratory Data Analysis
+The distribution curve for installment, fico, and interest rate shows normal distribution curves. This is important part before building any model to make sure it's normally distributed, stable mean. In most cases, standardization is needed to stable the mean and variance, so the model can perform better. For the annual income we see it left-skewed but I think it's okay if we don't normalize and standardize it just to make things simple and easy to interpret later.
+```{r}
+# Normal Distribution curve of log installment #
+par(mfrow = c(2, 2))
+inst <- loan$installment
+h<-hist(inst, breaks=10, col="red", xlab="Log installment",
+   main="Log installment distribution curve")
+xfit<-seq(min(inst),max(inst),length=40)
+yfit<-dnorm(xfit,mean=mean(inst),sd=sd(inst))
+yfit <- yfit*diff(h$mids[1:2])*length(inst)
+lines(xfit, yfit, col="blue", lwd=2)
+
+# Normal Distribution curve of log fico #
+fic <- loan$fico
+h2 <-hist(fic, breaks=10, col="red", xlab="Log Fico rating",
+   main="Fico rating distribution curve")
+xfit<-seq(min(fic),max(fic),length=40)
+yfit<-dnorm(xfit,mean=mean(fic),sd=sd(fic))
+yfit <- yfit*diff(h2$mids[1:2])*length(fic)
+lines(xfit, yfit, col="blue", lwd=2)
+
+# Normal Distribution curve of log annual income #
+inc <- loan$log.annual.inc
+h3 <-hist(inc, breaks=10, col="red", xlab="Log annual income",
+   main="Annual income distribution curve")
+xfit<-seq(min(inc),max(inc),length=40)
+yfit<-dnorm(xfit,mean=mean(inc),sd=sd(inc))
+yfit <- yfit*diff(h3$mids[1:2])*length(inc)
+lines(xfit, yfit, col="blue", lwd=2)
+
+# Normal Distribution curve of interest rate #
+rate <- loan$int.rate
+h4 <- hist(rate, breaks=10, col="red", xlab="Interest rate",
+   main="Interest rate distribution curve")
+xfit<-seq(min(rate),max(rate),length=40)
+yfit<-dnorm(xfit,mean=mean(rate),sd=sd(rate))
+yfit <- yfit*diff(h4$mids[1:2])*length(rate)
+lines(xfit, yfit, col="blue", lwd=2)
+```
+
+## Data Splitting
+Before building the model, it's mandatory for us to split the whole data into training and testing sets. The training dataset is used to train our model and the testing test is to test how accurate our model make predictions. This is crucial for any machine learning algorithm including logistic regression that we will use. First we feed our model with a subset of our data so that it can learn and produces the coefficients necesssary to predict the regressand then we feed the trained model with our test dataset to see how it works in terms of predicting the outcome of the test dataset that it (the model) has not trained before, so we can see how well it performs. Here I split the data into 80% for the training dataset and 20% for testing dataset.
+```{r}
+library(caTools)
+sample <- sample.split(loan$not.fully.paid, SplitRatio = 0.8)
+train_data <- subset(loan, sample == TRUE)
+test_data <- subset(loan, sample == FALSE)
+```
+
+### Building logistic regression model in R
+Building logistic regression in R is quite simple, we use glm() function or "Generalized Linear Model" to perform logistic regression, here we put the whole independent variables to the model. 
+```{r}
+#Logistic regression
+log.reg <- glm(not.fully.paid ~ ., data = train_data, family = "binomial")
+summary(log.reg)
+```
+From the summary of our model *log.rev*, we can see that, judging by the significance paramater asterisk, there are some insignificant variables. Therefore we can get rid of these insignificant variables and only include the significant variables. We modify our model as
+```{r}
+#TUNED GLM
+log.reg.rev <- glm(not.fully.paid ~ purpose + installment + log.annual.inc + 
+                     fico + revol.bal + inq.last.6mths + pub.rec, data = train_data, family = "binomial")
+summary(log.reg.rev)
+```
+### Interpretation of logistic regression
+Interpretation of logistic regression is different from another regression method like OLS regression in which we can directly interpret the effects of the coefficient parameters to the regressand. For example, the coefficient of fico of -0.0123, we interpret that for a unit (100) increase in fico, the log odds in favor of a person default is decrease by 0.0123 units. However, this intepretation is not quite hard to digest. Another way is to take the antilog of the logit. Remember earlier we define $$ \frac{Pi}{1 - Pi} =  exp(β_1 + β_2Xi) $$ so we know that the odds is $e^{-0.000003591 * 50000} = 0.8356$ which we can conclude that for people with income of $50,000 per year, on average 17 out of 20 person are likely to default their loan.
+Here I visualize the simulation of how the odds for default is decreasing as the income increasing.
+We can clearly see that the odds is decreasing exponentially as the income increasing. It might be better to not just interpret a single *Xi* but simulate for any values and visualize the effects to the odds.
+
+```{r}
+func3 <- function(x){
+  exp(-0.000003591 * (x))
+}
+
+u <- c(20000, 30000, 40000, 50000, 70000, 100000, 150000, 200000, 250000, 300000, 450000, 500000, 550000, 600000,
+       800000, 1000000, 1200000, 150000, 200000, 250000, 300000, 350000, 400000, 500000, 600000)
+u <- as.data.frame(u)
+K <- u %>%
+  mutate(odds = (func3(u)))
+K
+
+r <- ggplot(K, aes(x = u, y = odds)) + geom_line()
+r
+```
+
+
+Graph above is the visualization of the effects of increasing the income to the odds of default. It shows that as income increasing, the odds of default is decreasing exponentially. This is an intuitive result as we expect people with higher income will likely to pay their loan, vice versa.
+
+### Prediction
+now we can test the model with our test dataset. No, we do not make another model with our test dataset, but instead using out trained model to make predictions off of our test dataset.
+The syntax to predict is simple in R, using predict() functions in R we can generate predictions with our model.
+```{r}
+#MAKING PREDICTIONS
+predict_loan <- predict(object = log.reg.rev,
+                        newdata = test_data[-14], type = "response")
+
+head(predict_loan, n = 30)
+```
+Here we can sample out the predicition result of 30 samples. But we find that the result is not 0 or 1 as we want to use since the dependent variable (not.fully.paid) takes values either 0 or 1. In this case we can simply turn it to 0 or 1 values by assigning any values below 0.5 as 0, and above 0.5 as 1.
+```{r}
+binary_predict <- as.factor(ifelse(predict_loan > 0.5, 1, 0))
+
+head(binary_predict, n = 30)
+```
+The code means that if the predict_loan result is above 0.5, assign it as 1, else (result is below 0.5), assign it as 0. As you can see the fitted values or the predicted values have been transformed to either 0 or 1, representing the 1 as default and 0 as paid.
+
+## Model Evaluation
+We have built our model, making predictions, now time to see how accurate our model make predictions off our test dataset. The method to evaluate the accuracy of a model's predictions is using confusion matrix. With confusion matrix, we can see if our model generate right predictions with respect to the actual value from the test dataset, or otherwise make a false prediction.
+
+```{r}
+###CONFUSION MATRIX
+set.seed(12345)
+confusionMatrix(data = binary_predict, 
+                reference = test_data$not.fully.paid)
+```
+The result above tells us that, regarding to the confusion matrix, our model correctly predict off the test dataset that 1601 individuals (true positive) paid their loan while 13 people default (true negative). the overall accuracy is calculated by $\frac{correct prediction}{total observations}$ or equal to $\frac{(1601+13)}{1601 + 294 + 8 + 13}$ which results 0.8424. That means that given data points of 1916 observations from our test dataset, our model has correctly predict 1614 outcome. But the confusion matrix suggest that our model has false negative of 8 data, which means that our model predict 8 persons will default but they actually paid the loan, and 294 false positive which our model predict not default but they actually default.
+
+```{r}
+library(ROCR)
+pred_ROCR <- prediction(predict_loan, test_data$not.fully.paid)
+auc_ROCR <- performance(pred_ROCR, measure = 'auc')
+plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+paste('Area under Curve :', signif(auc_ROCR@y.values[[1]]))
+```
+## Conclusion
+1. Our logistic regression model is good but we have a specifity problem, this might occur due to high variance and different scale units among the regressors
+2. So far, with 84.24% overall accuracy, we can conclude that a simple model like logistic regression is quite powerful to make classification predictions with huge data points
+3. The accuracy of the model can be increased by standardizing and normalize the data, and adding more data for the model to train
+
+
+
