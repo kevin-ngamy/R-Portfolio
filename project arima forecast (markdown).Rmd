@@ -1,0 +1,227 @@
+---
+title: "Forecasting Stock using Arima Model"
+author: "Kevin T. Anggatama"
+date: "5/10/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+## Forecasting INDF stock price using ARIMA model in R
+
+I would like to demonstrate the stock price forecasting using Autoregressive Integrated Moving Average (ARIMA) in R language.
+Here I am using Indofood Sukses Makmur Tbk. (INDF) stock. 
+```{r setup, include=FALSE, echo = FALSE}
+library(quantmod)
+library(Quandl)
+library(TTR)
+library(tseries)
+library(knitr)
+library(rmarkdown)
+library(forecast)
+```
+The data we'll be using is INDF stock price, imported from Yahoo Finance. Using Quantmod package in R, it is easy to import data from Yahoo Finance. Basically the data consists of Open, High, Low, Close or OHLC, but here I only use the close price to keep things simple and hence our model will be univariate time series. I'm using INDF closed price data from 2015-01-06 to 2020-05-11 or equivalent to 1351 trading days.
+```{r, results='hide', message=FALSE}
+indf_data <- getSymbols(Symbols = "INDF.JK", src = "yahoo", from = Sys.Date() - 1953, 
+                        to = Sys.Date(), auto.assign = FALSE)
+
+indf_data <- Cl(indf_data)
+```
+
+### Stock Charting
+in order to begin analysing stock, here's the charting plus some technical indicators such as Simple Moving Average (20 and 100), Bollinger bands (20, sd = 1), Relative Strength Index (14 days), and Moving Average Convergence Divergence (12, 25) as the technical analysis before forecasting.
+```{r, eval=FALSE}
+chart_Series(indf_data, col = "black")
+add_SMA(n = 100, on = 1, col = "red")
+add_SMA(n = 20, on = 1, col = "black")
+add_RSI(n = 14, maType = "SMA")
+add_BBands(n = 20, maType = "SMA", sd = 1, on = -1)
+add_MACD(fast = 12, slow = 25, signal = 9, maType = "SMA", histogram = TRUE)
+```
+![indofood stock chart](arima_chart.png)
+
+In financial time series analysis, a rule of thumb is to do log transformation on the data. This will depict the growth rate of the stocks, and log transformation will scale the unit value (i.e price in USD) of each data so it will be equally scaled ( in case of multivariate time series) and the analysis will be easier. The sample of log-transformed indofood stock data is shown below.
+```{r}
+### Log tranformation stock data
+indf_log <- log(indf_data)
+head(indf_log, n = 10)
+plot(indf_log, main = "log indf_data chart")
+```
+
+As the data has been log-transformed, we can clearly see that the series shows some upward and downward trend in a given time interval. Through out the year of 2015 to mid 2017, the stock showed upward trend, while in mid 2017 to early 2019 it has downward trend. The stock also consist of some volatility and swing. These are the signs that the stock price movement is non-stationary. Matter of fact, most of financial data is non-stationary (in which the mean, variance, autocorrelation, are constant over time), but most of them follow random walk model with or without drift (RWM or RWD), this is due to the stock tend to having trend and inconstant variance and mean in a given period. Given that we can guess that its a random walk, which means the current value (price) is equal to its price at time (t - 1) plus a random shock (White Noise), hence we should difference the data with certain lag in order to fit ARIMA model as we'll see later.
+
+### Autocorrelation 
+another important step is to analyse if there's any correlation between today's price and yesterday's. This is called autocorrelation, where the current value is correlated or affected by yesterday or n-days backward. The tools we need to analyse the autocorrelation among the time series is using Autocorrelation Function (ACF) and Partial Autocorrelation (PACF) depicted by the Correlogram.
+Autocorrelation Function is given by : $$\hat{pl} = \frac{\sum_{t = l+1}^{T} (r_{t} - \overline{r})(r_{t-l} - \overline{r})}{\sum_{t = 1}^{T}(r_{t} - \overline{r})^2}$$ where the difference between value at time t with respect to the mean value is compared against the value at time t minus lag l (t-l) with respect to mean value. This can be writtenn simply $Pl = \frac{Cov(r_{t}, r_{t-l})}{var(r_{t})}$ for lag l. The correlogram for ACF and PACF for logged INDF data is shown below, normally we want to see autocorrelation from 1/4 to 1/3 of the observations number.
+
+```{r}
+acf_log <- acf(indf_log, lag.max = 320)
+pacf_log <- pacf(indf_log, lag.max = 320)
+```
+
+
+Given by the ACF correlogram, we can see that the data shows strong and significant autocorrelation up to lag 150 and then the autocorrelation starts reversing. For the PACF, significant autocorrelations appear in lag 3, 4, 38, 40-ish and then the autocorralation starts oscillating aroung the 0. This is the sign of certain trend, but we are unsure wether the data has seasonality or not, given that the PACF does not have any significant seasonal pattern. Therefore we conclude that indf stock price is non-stationary.
+
+### Differencing Data
+Given that our model is non-stationary, we should difference at certain lag for it to be stationary. In order to fit ARIMA model, the data should be stationary. Stationary is a really important property in forecasting time series, as it can be described as if given the data, we predict that its statistical properties will be the same in the future as they have been in the past. Hence the model will give robust and un-biased forecast for certain periods ahead. so here the log-transformed data will be differenced by 1 lag. A common fact in econometrics is that any random walk model (with or without drift) differenced by 1 lag, will automatically be stationary. 
+However, we'll encounter missing values in the differenced data, so replacing or filling in the missing values (i.e with the mean value or the last value) is mandatory. Here I filled in the missing values with the values from the last observation after that missing value.
+```{r}
+### difference logged data
+indf_diff <- diff(indf_log, lag = 1)
+
+indf_diff <- na.locf(indf_diff, na.rm = TRUE,
+                     fromLast = TRUE)
+plot(indf_diff)
+```
+
+### Augmented Dickey Fuller Test (Unit Root Test)
+As the logged data has been differenced at lag 1, we can see now that the data oscillates around 0 mean, this is the main characteristic of stationary data. But, we can do another stationary testing using **unit root testing**.
+For the indf_log (before differenced), it follows random walk proces hence non-stationary so it must be differenced. We can test it using Augmented Dickey Fuller Test (ADF), simply explained, we test alternative hypothesis that our data is stationary against the null hypothesis that the data is non-stationary. As usual, if the resulting p-value is below 0.05, we conclude that it is significant and we can reject the null hypothesis, otherwise it has unit root and is non-stationary. From the ADF test, our logged-differenced data is stationary.
+
+```{r}
+adf <- adf.test(indf_log, alternative = c("stationary", "explosive"), 
+                k = 0)
+adf
+```
+the result of ADF test on indf_log shows that it is non-stationary as shown by the insignificant p-value of 0.2344, we can say it has a unit root.  Therefore we difference it by lag 1, you could difference the data by any lag depens on your time frame (for quarterly data, you might wanna difference it by lag 4).
+Here I'm running the ADF test for our differenced (indf_diff) data to check if it is stationary.
+
+```{r}
+adf_diff <- adf.test(indf_diff, alternative = c("stationary", "explosive"), 
+                k = 0)
+adf_diff
+```
+we can see the p-value change to 0.01 (significant) and therefore we conclude that our differenced data is stationary at lag-1 (proving it is initially a random walk) and we do not have unit root in out differenced data, therefore it is appropriate for arima model.
+
+### differenced data correlogram
+```{r}
+diff.acf <- acf(indf_diff)
+diff.pacf <- pacf(indf_diff)
+```
+
+from the correlogram above, the sample ACF and PACF shows significance spike at lag 3. Moreover, the ACF shows cut-off at lag 1 and damped wave pattern, indicating that our data might fit Autoregressive(p) model. On the other hand, The PACF shows exponential decay from lag 3 (significant) and decaying to zero but then alternating, indicating our data could also fit MA(q) process. Overall we could see that our data might fit ARMA(p, d, q) model given the fact it posses both ACF and PACF characteristic of AR(p) and MA(q) model given lag(d) of 1. But to look for the best model in arima requires good sense of the data and experience of the forecaster, hence as Damodaran Gujarati said in his book, arima modeling is more like an art, and it is actually an iterative process.
+Fortunately, we do not have to manually analyse every possible ARIMA(p,d,q) pairs because R provides automatic way to generate the best p,d,q for ARIMA model with the smallest Akaike Information Criterion (AIC), Bayes Information Criterion (BIC) as we'll use later. The algorithm will try fitting a set of arima models to the data and generate the one with the smalles information criterion.
+
+Here I split the data into training dataset. We subset the data from first period to 1270th period to train the model. The test set is just the rest of the observations.
+```{r}
+### splitting into train and test data
+library(caTools)
+train_data <- indf_diff[1:1270]
+ ### 2015/01/06 - 2020/01/13 (1270 obs.)
+```
+
+### Build the ARIMA model
+As I've mentioned before, R provides simple and automatic way to generate appropriate ARIMA(p, d, q) model using auto.arima() function in forecast package. Here we pass in our train data, difference (d = 1),stationary = TRUE, there's actually several more parameters can be applied to auto.arima() function depends on the data characteristic.
+```{r}
+library(forecast)
+set.seed(123)
+arima_model <- auto.arima(train_data, stationary = TRUE, ic = c("aicc", "aic", "bic"), 
+                          trace = TRUE)
+summary(arima_model) ###summary for choosen best arima(p,d,q) model
+checkresiduals(arima_model) ###diagnostic cheking
+```
+
+The result is suggesting ARIMA(2, 0, 4) as our model. Thus our general model is given by
+$$ {Y_t^*} = \mu + \alpha_{1} Y_{t-1} - \alpha_{2} Y_{t-2} - \theta_{1} U_{t-1} + \theta_{2} U_{t-2} - \theta_{3} U_{t-3} - \theta_{4} U_{t-4} $$
+where ${Y_t^*}$ denotes the first differences of logged Indofood Stock Price, $\alpha_{n} Y_{t-n}$ denotes the Autoregressive (AR) term or previous Y value at time (t - n), and $\theta_{n} U_{t-n}$ denotes the Moving Average (MA) term of the errors (random shock) at time (t - n). Therefore our ARIMA model is $$ {INDF_t} = \mu + 0.42 (INDF_{t-1}) -0.70 (INDF_{t-2}) - 0.44 U_{t-1} + 0.69 U_{t-2} - 0.08 U_{t-3} - 0.06 U_{t-4} $$
+and we interpret it as the price of indofood stock at time t is equal to its two previous periods value multiplied by some coefficients and its four previous periods error (random shock) multiplied by some coefficients and lus intercept $\mu$.
+The residuals statistic suggest that the suggested model is good, the error terms is normally distributed and follows white noise, and judging by the Ljung-Box test, we conclude that the p-value > 0.05 (insignificant) meaning that the model's residuals are independent and not autocorrelated. Put in other words, the arima model suggested does not have heterocedasticity problem, otherwise we should do ARCH or GARCH model.
+
+### Fitting ARIMA Model and Forecasting
+given that we already know our model is ARIMA(2, 0, 4), the next step is to fit the model into the training dataset.
+```{r}
+arima <- arima(train_data, order = c(2, 0, 4))
+summary(arima)
+forecast1 <- forecast(arima, h = 100)
+plot(forecast1)
+checkresiduals(arima)
+```
+
+Here our forecast for 100 days ahead shows straight line. This is due to nature of arima forecasting
+tends to be **mean reversion**. The Ljung Box test shows that the model residuals are non-autocorrelated, suggesting there's no heterocedasticity problem and the model is good, otherwise we might consider GARCH model. The residuals of the model should follow normal distribution and stationary, this is the indication that the arima model fits the data well.
+But what's interesting is when we put ARIMA(2, 0, 4) with d = 0 to our log_indf data (non-stationary), the result is better such that it can capture the downward trend from february to may 2020 (due to covid 19).
+
+```{r}
+arima <- arima(indf_log[1:1270], order = c(2, 1, 4))
+summary(arima)
+```
+
+### Forecast
+```{r}
+forecast_ori <- forecast(arima, h = 100)
+a <- ts(indf_log)
+forecast_ori %>% autoplot() + autolayer(a)
+```
+
+
+```{r, echo=FALSE}
+arima <- arima(indf_log[1:1270], order = c(2, 1, 4))
+summary(arima)
+forecast_ori <- forecast(arima, h = 100)
+
+train2 <- indf_log[1:970]
+arima2 <- auto.arima(train2, d = 1, seasonal = TRUE, ic = c("aicc",
+                                                            "aic", "bic"), stationary = TRUE)
+arim <- arima(train2, order = c(0, 0 , 5))
+forecast2 <- forecast(arim, h = 100)
+```
+
+### multiple forecast
+
+I have included several forecasts using each appropriate ARIMA Model, four forecasts in total using different period training sets. You can see some of the forecast can capture the rapid change in the stock movement 100 days ahead. 
+```{r, echo = FALSE}
+arima4 <- arima(indf_log[1:1270], order = c(2, 0, 4))
+summary(arima4)
+forecast_ori2 <- forecast(arima4, h = 100)
+
+train3 <- indf_log[1:1100]
+arima3 <- auto.arima(train3, d = 1, seasonal = FALSE, ic = c("aicc",
+                                                            "aic", "bic"), stationary = TRUE)
+a <- ts(indf_log)
+arim3 <- arima(train3, order = c(3, 0 , 5))
+forecast3 <- forecast(arim3, h = 100)
+forecast3$mean %>% autoplot() + autolayer(a) + autolayer(forecast_ori$mean) + autolayer(forecast2$mean) +
+  autolayer(forecast_ori2$mean)
+```
+
+## Conclusion
+
+Overall, the forecast yield decent accuracy. The Mean Absolute Error (MAE), or in other words the average magnitude of the errors in a set of predictions (difference between the actual value and the predicted value) is 0.013. To get the value back to initial unit (price), we just take the anti-log such $exp(x_{n})$ of the logged value. The original forecast results in mean reversion (flat line), this is common in arima modeling which means the model cannot capture random events that occurs in a particular period so the forecast tend to follows the mean (mean reverting). But other models that I have also built, yields in decent result such that it follows some particular trend ahead. Sometimes forecasting time series is difficult, in a way that the forecaster should have some specific domain knowledges and skill plus often times we could encounter model that seems appropriate but cannot capture the data movement, and vice versa. If arima does not yield good result, that means the data has some characteristic that arima could not capture. Hence  we can try using other time series models such as VAR, GARCH (volatiliry clustering), or even the sophisticated Fourier transformation model, depends on the data characteristics. Thus forecasting should not be taken as a fixed result, but instead interative process until we can find the perfect model that could predict the movement of financial data.
+ 
+
+```{r, echo=FALSE, include=FALSE, eval=FALSE}
+pdf_document(
+  toc = FALSE,
+  toc_depth = 2,
+  number_sections = FALSE,
+  fig_width = 6.5,
+  fig_height = 4.5,
+  fig_crop = TRUE,
+  fig_caption = TRUE,
+  dev = "pdf",
+  df_print = "default",
+  highlight = "default",
+  template = "default",
+  keep_tex = FALSE,
+  keep_md = FALSE,
+  latex_engine = "pdflatex",
+  citation_package = c("none", "natbib", "biblatex"),
+  includes = NULL,
+  md_extensions = NULL,
+  output_extensions = NULL,
+  pandoc_args = NULL,
+  extra_dependencies = NULL
+)
+
+```
+
+
+
+
+
+
+
+
+
+
