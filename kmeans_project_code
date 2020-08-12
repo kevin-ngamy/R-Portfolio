@@ -1,4 +1,4 @@
-### Shiny Webapps for K-means clustering on Iris Dataset (Portfolio Project)
+### Shiny Webapps for K-means clustering on Iris Dataset (Pportfolio Project)
 ### Created by Kevin Tongam Anggatama
 ## 12 August 2020
 
@@ -29,7 +29,7 @@ ui_code <- fluidPage(
                   options = list(`style` = "btn-warning"),
                   selected = "Petal.Width"),
       sliderInput(inputId = "cluster_numb", #Number of Clusters input selector
-                  label = "Number of Clusters",
+                  label = "Number of Centers (K)",
                   value = 3,
                   min = 1, max = 9),
       numericInput(inputId = "iteration", # Number of iterations for kmeans
@@ -42,7 +42,7 @@ ui_code <- fluidPage(
       actionButton(inputId = "clust_result",
                    label = "Cluster Result",
                    icon = icon("table")),
-      DT::dataTableOutput ("clust_table", height = "auto"),
+      DT::dataTableOutput("clust_table", height = "auto"),
       
       fluid = TRUE
       
@@ -62,9 +62,13 @@ ui_code <- fluidPage(
         tabPanel("Data Table", # main tab for presenting iris data as dynamic table
                  DT::DTOutput("table"),
                  downloadButton("download_data", 
-                                label = "download data")),
+                                label = "download data"),
+                 actionButton(inputId = "sum_stats",
+                              label = "Summary Statistics",
+                              icon = icon("table")),
+                 DT::DTOutput("stats_table")),
         tabPanel("About Project",
-                 br(h5("The purpose of this portfolio project is to interactively implement 
+                 br(h4("The purpose of this portfolio project is to interactively implement 
                  K-means clustering to iris dataset and clustering the data into certain number 
                  of clusters while visually understand
                     the mechanism behind the algorithm."),
@@ -79,12 +83,16 @@ ui_code <- fluidPage(
                     I do mathematics and music in my free time. Currently looking for data science
                        internship opportunity. Any offer is more than welcomed."),
                     br(),
-                 p(h4(strong("All the codes for this apps is provided in my Github:", 
+                 p(h5(strong("All the codes for this apps is provided in my Github:", 
                    a("Source Code", 
                      href = "https://github.com/kevin-ngamy/R-Portfolio/blob/master/kmeans_project_code", 
                      target = "_blank")))),
                     br(),
-                 h4("contact: kevintongam98@gmail.com")) # tab for project description
+                 p(h5(strong("Check my another shiny apps project:", 
+                             a("Interactive dataviz web apps", 
+                               href = "https://kevintongam.shinyapps.io/shinyapps_gapminder/", 
+                               target = "_blank")))),
+                 h5(strong("contact: kevintongam98@gmail.com"))) # tab for project description
                  
                  )
         
@@ -176,10 +184,20 @@ server_code <- function(input, output){
   
   output$clust_table <- DT::renderDataTable(final_table()) ## rendering result
   
+  ## showing table of summary statistics for dynamic table in tab panel 2
+  stats_sum <- eventReactive(input$sum_stats, {
+    
+    DT::datatable(summary(iris))
+    
+  })
+  
+  output$stats_table <- DT::renderDataTable(stats_sum())
+  
+  
   output$download_data <- downloadHandler( ## downlad button in the second tabset
     filename = "iris.csv",
     content = function(file) {
-      data <- gapminder
+      data <- iris
       write.csv(data, file, row.names = FALSE)
     }
   )
