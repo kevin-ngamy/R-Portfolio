@@ -1,0 +1,247 @@
+### Shiny Webapps for K-means clustering on Iris Dataset (Pportfolio Project)
+### Created by Kevin Tongam Anggatama
+## 12 August 2020
+
+library(shiny)
+library(ggplot2)
+library(tidyverse)
+library(colourpicker)
+library(plotly)
+library(dplyr)
+library(DT)
+library(shinythemes)
+library(shinyWidgets)
+
+### User Interface Code
+ui_code <- fluidPage(
+  sidebarLayout( # Code for sidebar Panel
+    sidebarPanel(
+      titlePanel(strong("K-Means Clustering")),
+      br(),
+      pickerInput(inputId = "input_x", # X variable input selector
+                  label = "Select X Variable",
+                  choices = names(iris[1:4]),
+                  options = list(`style` = "btn-info"),
+                  selected = "Sepal.Length"),
+      pickerInput(inputId = "input_y", # Y variable input selector
+                  label = "Select Y Variable",
+                  choices = names(iris[1:4]),
+                  options = list(`style` = "btn-warning"),
+                  selected = "Petal.Width"),
+      sliderInput(inputId = "cluster_numb", #Number of Clusters input selector
+                  label = "Number of Clusters",
+                  value = 3,
+                  min = 1, max = 9),
+      numericInput(inputId = "iteration", # Number of iterations for kmeans
+                  label = "Number of Iterations",
+                  5, min = 5, max = 100),
+      actionButton(inputId = "show_model",
+                   label = "K-means Centers", icon = icon("list-alt")),
+      tableOutput("tab_summary"),
+      br(),
+      actionButton(inputId = "clust_result",
+                   label = "Cluster Result",
+                   icon = icon("table")),
+      DT::dataTableOutput ("clust_table", height = "auto"),
+      
+      fluid = TRUE
+      
+    ),
+    
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Visualization", # main tab for clusters visualization
+                 plotOutput("plot", height = "400px"),
+                 tabPanel("elbow plot", plotOutput("elbow")),
+                 fluidRow(
+                   column(width = 5, 
+                          offset = 8,
+                          h6(em(strong("Created by Kevin Tongam Anggatama")))) # copywrite text
+                 )),
+        
+        tabPanel("Data Table", # main tab for presenting iris data as dynamic table
+                 DT::DTOutput("table"),
+                 downloadButton("download_data", label = "download data")),
+        tabPanel("About Project",
+                 br(h5("The purpose of this portfolio project is to interactively implement 
+                 K-means clustering to iris dataset and to cluster the data into certain number 
+                 of clusters and visually understand
+                    the mechanism behind the algorithm"),
+                    br("This app is programmed in R language and Shiny"),
+                    br("Created in 12 August 2020")),
+                 p("All the code for this apps is provide in my Github",a("Source Code", href = "https://www.google.com/", target = "_blank"))) # tab for project description
+      )
+    )
+  )
+
+)
+
+### Server code
+server_code <- function(input, output){
+  
+  ## subsetting data with the reactive input x and y
+  selected_data <- reactive({
+    iris[, c(input$input_x, 
+             input$input_y)]
+  })
+  
+  ## Running K-means algo with the inputted x value, y value, cluster number, and number of iterations
+  cluster_numb <- reactive({
+    kmeans(selected_data(), 
+           centers = input$cluster_numb, 
+           nstart = input$iteration)
+  })
+  
+  ## rendering k-means clustering plot (scatter plot) colored by number of clusters
+  output$plot <- renderPlot({
+    
+    palette(c("#E41A1C", "#377EB8", "#4DAF4A",
+              "#984EA3", "#FF7F00", "#FFFF33",
+              "#A65628", "#F781BF", "#999999"))
+    
+    par(mar = c(5.1, 4.1, 0, 1))
+    plot(selected_data(), 
+         col = cluster_numb()$cluster,
+         pch = 20, cex= 3)
+    points(cluster_numb()$centers, 
+           pch = 4, cex = 4, lwd = 4)
+    
+  })
+  
+  ## Making elbow plot reactive and based on selected number of clusters and iteration
+  output$elbow <- renderPlot({
+    wss <- 0
+    
+    # For 1 to 15 cluster centers
+    for (i in 1:input$cluster_numb) {
+      
+      km.out <- kmeans(selected_data(), 
+                       centers = i, 
+                       nstart = input$iteration)
+      # Save total within sum of squares to wss variable
+      wss[i] <- km.out$tot.withinss
+    }
+    
+    # Plotting total within sum of squares vs. number of clusters
+    plot(1:input$cluster_numb, wss, type = "b", 
+         xlab = "Number of Clusters", 
+         ylab = "Within groups sum of squares",
+         main = "Elbow Plot",
+         col = 1:input$cluster_numb,
+         )
+    
+  })
+    
+  output$table <- DT::renderDT({ ## rendering dynamic table in second tabset
+    iris
+    
+  })
+  
+  show_summary <- eventReactive(input$show_model, { ## reactive for showing the resulting k-means
+    print(cluster_numb()$centers)
+    
+  })
+  
+  output$tab_summary <- renderTable(show_summary())
+
+  ## Dynamic table in the sidebar panel to show the result of k-means clustering and binding original datafram with the clustered datapoint
+  final_table <- eventReactive(input$clust_result, {
+    selected_data() %>%
+      mutate(Cluster = cluster_numb()$cluster) %>%
+      datatable() %>%
+      formatStyle('Cluster', 
+                  backgroundColor = 'yellow', 
+                  fontWeight = 'bold',
+                  color = styleInterval(c(1,input$cluster_numb-1), 
+                                        c('green', 'blue', 'red')))
+    
+  })
+  
+  output$clust_table <- DT::renderDataTable(final_table()) ## rendering result
+  
+  output$download_data <- downloadHandler( ## downlad button in the second tabset
+    filename = "iris.csv",
+    content = function(file) {
+      data <- gapminder
+      write.csv(data, file, row.names = FALSE)
+    }
+  )
+  
+}
+
+shinyApp(ui = ui_code, server = server_code, options = list(height = 1080))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
