@@ -1,4 +1,4 @@
-### Shiny Webapps for K-means clustering on Iris Dataset (Pportfolio Project)
+### Shiny Webapps for K-means clustering on Iris Dataset (Portfolio Project)
 ### Created by Kevin Tongam Anggatama
 ## 12 August 2020
 
@@ -61,19 +61,36 @@ ui_code <- fluidPage(
         
         tabPanel("Data Table", # main tab for presenting iris data as dynamic table
                  DT::DTOutput("table"),
-                 downloadButton("download_data", label = "download data")),
+                 downloadButton("download_data", 
+                                label = "download data")),
         tabPanel("About Project",
                  br(h5("The purpose of this portfolio project is to interactively implement 
-                 K-means clustering to iris dataset and to cluster the data into certain number 
-                 of clusters and visually understand
-                    the mechanism behind the algorithm"),
-                    br("This app is programmed in R language and Shiny"),
-                    br("Created in 12 August 2020")),
-                 p("All the code for this apps is provide in my Github",a("Source Code", href = "https://www.google.com/", target = "_blank"))) # tab for project description
+                 K-means clustering to iris dataset and clustering the data into certain number 
+                 of clusters while visually understand
+                    the mechanism behind the algorithm."),
+                    br("This app is programmed in R language and Shiny."),
+                    br("Created in 12 August 2020."),
+                    br(),
+                    p("Creator:", 
+                      a("Kevin Tongam Anggatama", 
+                        href = "https://www.linkedin.com/in/kevin-tongam-anggatama-001461134/", 
+                        target = "_blank")),
+                    br("I study economics and data science full time. Beside it, 
+                    I do mathematics and music in my free time. Currently looking for data science
+                       internship opportunity. Any offer is more than welcomed."),
+                    br(),
+                 p(h4(strong("All the codes for this apps is provided in my Github:", 
+                   a("Source Code", 
+                     href = "https://github.com/kevin-ngamy/R-Portfolio/blob/master/kmeans_project_code", 
+                     target = "_blank")))),
+                    br(),
+                 h4("contact: kevintongam98@gmail.com")) # tab for project description
+                 
+                 )
+        
       )
     )
   )
-
 )
 
 ### Server code
@@ -170,78 +187,4 @@ server_code <- function(input, output){
 }
 
 shinyApp(ui = ui_code, server = server_code, options = list(height = 1080))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
